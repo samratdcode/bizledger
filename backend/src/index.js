@@ -12,6 +12,7 @@ const reportRoutes      = require("./routes/reports");
 const dashboardRoutes   = require("./routes/dashboard");
 
 const app  = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
 
 // ── Middleware ──────────────────────────────────────────────────
