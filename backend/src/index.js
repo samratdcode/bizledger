@@ -27,7 +27,7 @@ app.use(cors({
 }));
 app.options("*", cors());
 
-app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Rate limit login — 20 attempts per 15 minutes
 const loginLimiter = rateLimit({
