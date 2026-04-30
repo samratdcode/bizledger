@@ -23,7 +23,7 @@ params.append("phone",    phone.trim());
 params.append("password", password);
 
 ```
-const { data } = await api.post("/api/auth/login", params, {
+const { data } = await api.post("/auth/login", params, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
   setAuth(data.user, data.accessToken, data.refreshToken);
