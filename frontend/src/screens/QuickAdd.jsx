@@ -21,7 +21,7 @@ const newRow = (id) => ({ id, templateId: “t1”, amount: “”, note: “”
 
 let rowCounter = 1;
 
-export default function QuickAdd() {
+export default function QuickAdd({ openVoice }) {
 const qc = useQueryClient();
 
 const [date,   setDate]   = useState(todayStr());
@@ -121,11 +121,17 @@ try {
 return (
 <div>
 {/* Header */}
-<div style={S.header}>
+<div style={{ …S.header, justifyContent:“space-between”, alignItems:“center” }}>
 <div>
 <div style={S.title}>⚡ Bulk Entry</div>
 <div style={S.sub}>Add multiple transactions · save at once</div>
 </div>
+{openVoice && (
+<button onClick={openVoice}
+style={{ background:“rgba(255,255,255,0.15)”, border:“1.5px solid rgba(255,255,255,0.3)”, borderRadius:12, padding:“8px 14px”, color:”#fff”, fontSize:13, fontWeight:700, cursor:“pointer”, fontFamily:“inherit”, display:“flex”, alignItems:“center”, gap:6 }}>
+🎙️ Voice
+</button>
+)}
 </div>
 
 ```
