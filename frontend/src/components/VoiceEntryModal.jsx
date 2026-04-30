@@ -1,33 +1,33 @@
-import React, { useState, useRef, useEffect } from “react”;
-import { useQuery, useQueryClient } from “@tanstack/react-query”;
-import api from “../api.js”;
-import { INR, S, C } from “../styles.js”;
+import React, { useState, useRef, useEffect } from “react";
+import { useQuery, useQueryClient } from “@tanstack/react-query";
+import api from “../api.js";
+import { INR, S, C } from “../styles.js";
 
 // ── Keyword maps ─────────────────────────────────────────────────
 const BIZ_MAP = {
-medicine: “pharmacy”, pharmacy: “pharmacy”, medical: “pharmacy”,
-diagnostic: “diagnostic”, diagnostics: “diagnostic”, lab: “diagnostic”,
-test: “diagnostic”, pathology: “diagnostic”,
-nursing: “nursing_home”, hospital: “nursing_home”, ward: “nursing_home”,
-nurse: “nursing_home”,
+medicine: “pharmacy", pharmacy: “pharmacy", medical: “pharmacy",
+diagnostic: “diagnostic", diagnostics: “diagnostic", lab: “diagnostic",
+test: “diagnostic", pathology: “diagnostic",
+nursing: “nursing_home", hospital: “nursing_home", ward: “nursing_home",
+nurse: “nursing_home",
 };
 
 const MODE_MAP = {
-cash: “cash”,
-bank: “bank”, upi: “bank”, gpay: “bank”,
-google: “bank”, online: “bank”, transfer: “bank”, neft: “bank”,
+cash: “cash",
+bank: “bank", upi: “bank", gpay: “bank",
+google: “bank", online: “bank", transfer: “bank", neft: “bank",
 };
 
 const TYPE_MAP = {
-in: “in”, income: “in”, received: “in”, credit: “in”, deposit: “in”,
-out: “out”, expense: “out”, paid: “out”, debit: “out”, payment: “out”,
-spent: “out”, withdrawn: “out”,
+in: “in", income: “in", received: “in", credit: “in", deposit: “in",
+out: “out", expense: “out", paid: “out", debit: “out", payment: “out",
+spent: “out", withdrawn: “out",
 };
 
 const BIZ_LABELS = {
-pharmacy:     { name: “Pharmacy”,          icon: “💊”, color: “#10B981” },
-diagnostic:   { name: “Diagnostic Centre”, icon: “🔬”, color: “#8B5CF6” },
-nursing_home: { name: “Nursing Home”,      icon: “🏥”, color: “#3B82F6” },
+pharmacy:     { name: “Pharmacy",          icon: “💊", color: “#10B981" },
+diagnostic:   { name: “Diagnostic Centre", icon: “🔬", color: “#8B5CF6" },
+nursing_home: { name: “Nursing Home",      icon: “🏥", color: “#3B82F6" },
 };
 
 // ── Parser ───────────────────────────────────────────────────────
@@ -78,16 +78,16 @@ valid: !!(bizType && mode && type && amount),
 // ── Component ────────────────────────────────────────────────────
 export default function VoiceEntryModal({ onClose }) {
 const qc   = useQueryClient();
-const [phase,    setPhase]    = useState(“idle”);   // idle | listening | parsed | saving | done | error | unsupported
-const [transcript, setTranscript] = useState(””);
+const [phase,    setPhase]    = useState(“idle");   // idle | listening | parsed | saving | done | error | unsupported
+const [transcript, setTranscript] = useState("");
 const [parsed,   setParsed]   = useState(null);
-const [saveErr,  setSaveErr]  = useState(””);
-const [amount,   setAmount]   = useState(””);       // editable after parse
+const [saveErr,  setSaveErr]  = useState("");
+const [amount,   setAmount]   = useState("");       // editable after parse
 const recogRef = useRef(null);
 
 const { data: bizData } = useQuery({
-queryKey: [“businesses”],
-queryFn:  () => api.get(”/businesses”).then(r => r.data),
+queryKey: [“businesses"],
+queryFn:  () => api.get("/businesses").then(r => r.data),
 });
 const businesses = bizData?.businesses || [];
 
@@ -101,13 +101,13 @@ const SpeechRecognition =
 window.SpeechRecognition || window.webkitSpeechRecognition;
 
 useEffect(() => {
-if (!SpeechRecognition) setPhase(“unsupported”);
+if (!SpeechRecognition) setPhase(“unsupported");
 return () => recogRef.current?.abort();
 }, []);
 
 const startListening = () => {
 const recog = new SpeechRecognition();
-recog.lang             = “en-IN”;
+recog.lang             = “en-IN";
 recog.continuous       = false;
 recog.interimResults   = false;
 recog.maxAlternatives  = 3;
@@ -154,15 +154,15 @@ recog.start();
 
 const stopListening = () => {
 recogRef.current?.stop();
-setPhase(“idle”);
+setPhase(“idle");
 };
 
 const save = async () => {
 if (!parsed?.valid) return;
 const biz = businesses.find(b => b.type === parsed.bizType);
-if (!biz) return setSaveErr(“Business not found. Make sure businesses are set up.”);
+if (!biz) return setSaveErr(“Business not found. Make sure businesses are set up.");
 const amt = parseFloat(amount);
-if (!amt || amt <= 0) return setSaveErr(“Fix the amount first.”);
+if (!amt || amt <= 0) return setSaveErr(“Fix the amount first.");
 
 ```
 setPhase("saving");
