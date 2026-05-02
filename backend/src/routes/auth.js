@@ -21,8 +21,8 @@ const signRefresh = (userId) =>
 // POST /api/auth/login
 router.post("/login", async (req, res) => {
   try {
-    const phone = (req.body.phone || "").trim();
-    const password = req.body.password || "";
+    const phone = String(req.body?.phone || "").trim();
+    const password = String(req.body?.password || "");
 
     console.log("LOGIN ATTEMPT — phone:", phone);
 
@@ -30,21 +30,38 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Phone and password required" });
     }
 
-    const user = await prisma.user.findUnique({ where: { phone } });
+    let user;
+    try {
+      user = await prisma.user.findUnique({ where: { phone } });
+    } catch (dbErr) {
+      console.error("DB ERROR during login:", dbErr.message);
+      return res.status(500).json({ error: "Database error. Please try again." });
+    }
 
     if (!user || !user.isActive) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
+    let valid;
+    try {
+      valid = await bcrypt.compare(password, user.passwordHash);
+    } catch (bcryptErr) {
+      console.error("BCRYPT ERROR:", bcryptErr.message);
+      return res.status(500).json({ error: "Authentication error. Please try again." });
+    }
 
     if (!valid) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    res.json({
-      accessToken: signAccess(user.id),
-      refreshToken: signRefresh(user.id),
+    const accessToken  = signAccess(user.id);
+    const refreshToken = signRefresh(user.id);
+
+    console.log("LOGIN SUCCESS — user:", user.name);
+
+    return res.json({
+      accessToken,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
@@ -54,8 +71,8 @@ router.post("/login", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("LOGIN ERROR:", err.message);
-    res.status(500).json({ error: "Login failed: " + err.message });
+    console.error("UNHANDLED LOGIN ERROR:", err.message, err.stack);
+    return res.status(500).json({ error: "Login failed. Please try again." });
   }
 });
 
@@ -82,10 +99,11 @@ router.post("/refresh", async (req, res) => {
       return res.status(401).json({ error: "User not found" });
     }
 
-    res.json({ accessToken: signAccess(user.id) });
+    return res.json({ accessToken: signAccess(user.id) });
 
-  } catch {
-    res.status(401).json({ error: "Invalid refresh token" });
+  } catch (err) {
+    console.error("REFRESH ERROR:", err.message);
+    return res.status(401).json({ error: "Invalid refresh token" });
   }
 });
 
@@ -131,11 +149,11 @@ router.post("/change-password", auth, async (req, res) => {
       data: { passwordHash: hash },
     });
 
-    res.json({ message: "Password changed successfully" });
+    return res.json({ message: "Password changed successfully" });
 
   } catch (err) {
     console.error("CHANGE PASSWORD ERROR:", err.message);
-    res.status(500).json({
+    return res.status(500).json({
       error: "Failed to change password",
     });
   }
