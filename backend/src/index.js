@@ -1,23 +1,31 @@
 require("dotenv").config();
-const express   = require("express");
-const cors      = require("cors");
+const express = require("express");
+const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 
-const authRoutes        = require("./routes/auth");
-const businessRoutes    = require("./routes/businesses");
+const authRoutes = require("./routes/auth");
+const businessRoutes = require("./routes/businesses");
 const transactionRoutes = require("./routes/transactions");
-const transferRoutes    = require("./routes/transfers");
-const partnerRoutes     = require("./routes/partners");
-const reportRoutes      = require("./routes/reports");
-const dashboardRoutes   = require("./routes/dashboard");
+const transferRoutes = require("./routes/transfers");
+const partnerRoutes = require("./routes/partners");
+const reportRoutes = require("./routes/reports");
+const dashboardRoutes = require("./routes/dashboard");
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Required for Railway/Render
+// Prevent crashes
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION:", err.message, err.stack);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("UNHANDLED REJECTION:", reason);
+});
+
+// Railway fix
 app.set("trust proxy", 1);
 
-// Open CORS — JWT handles security, not origin
+// CORS
 app.use(cors({
   origin: (origin, callback) => callback(null, true),
   credentials: true,
@@ -31,33 +39,41 @@ app.options("*", cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limit login
+// Rate limiter
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   message: { error: "Too many attempts. Try again in 15 minutes." },
-  keyGenerator: (req) => req.ip || req.headers["x-forwarded-for"] || "unknown",
+  keyGenerator: (req) =>
+    req.ip || req.headers["x-forwarded-for"] || "unknown",
+  handler: (req, res) => {
+    res.status(429).json({
+      error: "Too many attempts. Try again in 15 minutes.",
+    });
+  },
 });
 
 // Routes
-app.get("/health", (_, res) => res.json({ status: "ok", ts: new Date() }));
+app.get("/health", (_, res) =>
+  res.json({ status: "ok", ts: new Date() })
+);
 
-app.use("/api/auth",         loginLimiter, authRoutes);
-app.use("/api/businesses",   businessRoutes);
+app.use("/api/auth", loginLimiter, authRoutes);
+app.use("/api/businesses", businessRoutes);
 app.use("/api/transactions", transactionRoutes);
-app.use("/api/transfers",    transferRoutes);
-app.use("/api/partners",     partnerRoutes);
-app.use("/api/reports",      reportRoutes);
-app.use("/api/dashboard",    dashboardRoutes);
+app.use("/api/transfers", transferRoutes);
+app.use("/api/partners", partnerRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error(err);
+  console.error("GLOBAL ERROR:", err.message, err.stack);
   res.status(err.status || 500).json({
-    error: err.message || "Internal server error"
+    error: err.message || "Internal server error",
   });
 });
 
-app.listen(PORT, () =>
-  console.log(`✅ BizLedger API running on port ${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`BizLedger API running on port ${PORT}`);
+});
