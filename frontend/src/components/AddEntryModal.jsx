@@ -16,29 +16,29 @@ const todayStr = () => {
 export default function AddEntryModal({ onClose, prefillBiz }) {
   const qc = useQueryClient();
 
-  const [type,   setType]   = useState("in");
+  const [type, setType] = useState("in");
   const [amount, setAmount] = useState("");
-  const [bizId,  setBizId]  = useState(prefillBiz?.id || "");
-  const [mode,   setMode]   = useState("cash");
-  const [cat,    setCat]    = useState("");
-  const [desc,   setDesc]   = useState("");
-  const [date,   setDate]   = useState(todayStr());
+  const [bizId, setBizId] = useState(prefillBiz?.id || "");
+  const [mode, setMode] = useState("cash");
+  const [cat, setCat] = useState("");
+  const [desc, setDesc] = useState("");
+  const [date, setDate] = useState(todayStr());
   const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState("");
+  const [error, setError] = useState("");
 
-  const { data: bizData }  = useQuery({
+  const { data: bizData } = useQuery({
     queryKey: ["businesses"],
-    queryFn: () => api.get("/businesses").then(r => r.data)
+    queryFn: () => api.get("/businesses").then(r => r.data),
   });
 
   const { data: dashData } = useQuery({
     queryKey: ["dashboard"],
-    queryFn: () => api.get("/dashboard").then(r => r.data)
+    queryFn: () => api.get("/dashboard").then(r => r.data),
   });
 
   const businesses = bizData?.businesses || [];
   const sharedCash = dashData?.sharedCash || 0;
-  const chosenBiz  = businesses.find(b => b.id === bizId);
+  const chosenBiz = businesses.find(b => b.id === bizId);
   const isBackdated = date !== todayStr();
 
   const save = async () => {
@@ -83,16 +83,14 @@ export default function AddEntryModal({ onClose, prefillBiz }) {
           <button onClick={onClose} style={{ background:"none", border:"none", fontSize:26, cursor:"pointer", color:C.slate500 }}>×</button>
         </div>
 
-        {/* IN / OUT */}
         <div style={S.toggle}>
-          <button style={{ ...S.tBtn, background:type==="in" ? C.green : "transparent", color:type==="in" ? C.white : C.slate500 }}
+          <button style={{ ...S.tBtn, background:type==="in"?C.green:"transparent", color:type==="in"?C.white:C.slate500 }}
             onClick={()=>{ setType("in"); setCat(""); }}>↑ Cash IN</button>
 
-          <button style={{ ...S.tBtn, background:type==="out"? C.red : "transparent", color:type==="out"? C.white : C.slate500 }}
+          <button style={{ ...S.tBtn, background:type==="out"?C.red:"transparent", color:type==="out"?C.white:C.slate500 }}
             onClick={()=>{ setType("out"); setCat(""); }}>↓ Cash OUT</button>
         </div>
 
-        {/* Amount */}
         <div style={{ textAlign:"center", margin:"20px 0 4px" }}>
           <span style={{ fontSize:26, color:C.slate300 }}>₹</span>
           <input
@@ -109,21 +107,51 @@ export default function AddEntryModal({ onClose, prefillBiz }) {
           />
         </div>
 
-        {/* Date Picker */}
-        <span style={S.fLabel}>Transaction Date</span>
-        <input
-          type="date"
-          value={date}
-          max={todayStr()}
-          onChange={e=>setDate(e.target.value)}
-          style={{ ...S.input, marginTop:8 }}
-        />
+        {/* Business */}
+        <span style={S.fLabel}>Business</span>
+        <div style={{ display:"flex", gap:8, marginTop:8, flexWrap:"wrap" }}>
+          {businesses.map(b=>(
+            <button key={b.id}
+              style={{ ...S.pill, ...(bizId===b.id?{background:b.color,color:C.white}:{}) }}
+              onClick={()=>setBizId(b.id)}>
+              {b.icon} {b.name.split(" ")[0]}
+            </button>
+          ))}
+        </div>
 
-        {error && (
-          <div style={{ background:"#FEF2F2", color:C.red, padding:10, marginTop:10 }}>
-            {error}
-          </div>
-        )}
+        {/* Payment */}
+        <span style={S.fLabel}>Payment Mode</span>
+        <div style={{ display:"flex", gap:8, marginTop:8 }}>
+          <button style={{ ...S.pill, ...(mode==="cash"?{background:C.amber,color:C.white}:{}) }}
+            onClick={()=>setMode("cash")}>💵 Cash</button>
+
+          <button style={{ ...S.pill, ...(mode==="bank"?{background:C.blue,color:C.white}:{}) }}
+            onClick={()=>setMode("bank")}>🏦 Bank</button>
+        </div>
+
+        {/* Category */}
+        <span style={S.fLabel}>Category</span>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
+          {CATS[type].map(c=>(
+            <button key={c}
+              style={{ ...S.chip, ...(cat===c?{background:C.blue,color:C.white}:{}) }}
+              onClick={()=>setCat(c===cat?"":c)}>
+              {c}
+            </button>
+          ))}
+        </div>
+
+        {/* Note */}
+        <span style={S.fLabel}>Note</span>
+        <input style={S.input} value={desc} onChange={e=>setDesc(e.target.value)} />
+
+        {/* Date */}
+        <span style={S.fLabel}>Transaction Date</span>
+        <input type="date" value={date} max={todayStr()}
+          onChange={e=>setDate(e.target.value)}
+          style={{ ...S.input, marginTop:8 }} />
+
+        {error && <div style={{ color:C.red }}>{error}</div>}
 
         <button onClick={save} disabled={saving}
           style={{ ...S.btn, background:type==="in"?C.green:C.red }}>
