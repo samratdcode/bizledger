@@ -1,30 +1,35 @@
 import React, { useState } from "react";
-import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../api.js";
-import { S, C, INR } from "../styles.js";
+import { INR, S, C } from "../styles.js";
 
-const CATS = {
-  in: ["Bed Charge","Lab Test","Medicine Sale","OPD Fee","Admission","Consultation","Collection","Other"],
-  out: ["Staff Salary","Medicine Purchase","Electricity","Rent","Equipment","Maintenance","Other"],
-};
+// ── Templates ────────────────────────────────────────────────────
+const TEMPLATES = [
+  { id:"t1", label:"Medicine Sale", sublabel:"Cash", icon:"💊", color:"#10B981", bgColor:"#ECFDF5", borderColor:"#6EE7B7", bizType:"pharmacy", type:"in", mode:"cash", category:"Medicine Sale" },
+  { id:"t2", label:"Medicine Sale", sublabel:"GPay", icon:"💊", color:"#2563EB", bgColor:"#EFF6FF", borderColor:"#93C5FD", bizType:"pharmacy", type:"in", mode:"bank", category:"Medicine Sale" },
+  { id:"t3", label:"Nursing Home", sublabel:"Cash", icon:"🏥", color:"#3B82F6", bgColor:"#EFF6FF", borderColor:"#93C5FD", bizType:"nursing_home", type:"in", mode:"cash", category:"Collection" },
+  { id:"t4", label:"Diagnostic", sublabel:"Cash", icon:"🔬", color:"#8B5CF6", bgColor:"#F5F3FF", borderColor:"#C4B5FD", bizType:"diagnostic", type:"in", mode:"cash", category:"Collection" },
+  { id:"t5", label:"Diagnostic", sublabel:"UPI", icon:"🔬", color:"#2563EB", bgColor:"#EFF6FF", borderColor:"#93C5FD", bizType:"diagnostic", type:"in", mode:"bank", category:"Collection" },
+];
 
 const todayStr = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 };
 
-export default function AddEntryModal({ onClose, prefillBiz }) {
+const newRow = (id) => ({ id, templateId: "t1", amount: "", note: "" });
+
+let rowCounter = 1;
+
+export default function QuickAdd({ openVoice }) {
   const qc = useQueryClient();
 
-  const [type, setType] = useState("in");
-  const [amount, setAmount] = useState("");
-  const [bizId, setBizId] = useState(prefillBiz?.id || "");
-  const [mode, setMode] = useState("cash");
-  const [cat, setCat] = useState("");
-  const [desc, setDesc] = useState("");
   const [date, setDate] = useState(todayStr());
+  const [rows, setRows] = useState([newRow(rowCounter++)]);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [globalError, setGlobalError] = useState("");
 
   const { data: bizData } = useQuery({
     queryKey: ["businesses"],
@@ -34,130 +39,139 @@ export default function AddEntryModal({ onClose, prefillBiz }) {
   const { data: dashData } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api.get("/dashboard").then(r => r.data),
+    refetchInterval: 20000,
   });
 
   const businesses = bizData?.businesses || [];
   const sharedCash = dashData?.sharedCash || 0;
-  const chosenBiz = businesses.find(b => b.id === bizId);
+  const todayIn = dashData?.today?.in || 0;
+  const todayOut = dashData?.today?.out || 0;
+
   const isBackdated = date !== todayStr();
 
-  const save = async () => {
-    if (!amount || !bizId) return setError("Enter amount and select a business");
+  const getBiz = (bizType) => businesses.find(b => b.type === bizType);
+  const getTpl = (id) => TEMPLATES.find(t => t.id === id);
 
-    const amt = parseFloat(amount);
-    if (isNaN(amt) || amt <= 0) return setError("Enter a valid amount");
+  const batchTotal = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+
+  const addRow = () => setRows(prev => [...prev, newRow(rowCounter++)]);
+
+  const removeRow = (id) => {
+    if (rows.length === 1) return;
+    setRows(prev => prev.filter(r => r.id !== id));
+    setErrors(prev => {
+      const e = { ...prev };
+      delete e[id];
+      return e;
+    });
+  };
+
+  const updateRow = (id, field, value) => {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+    if (errors[id]) {
+      setErrors(prev => {
+        const e = { ...prev };
+        delete e[id];
+        return e;
+      });
+    }
+  };
+
+  const saveAll = async () => {
+    const newErrors = {};
+    let valid = true;
+
+    rows.forEach(r => {
+      const amt = parseFloat(r.amount);
+      if (!r.amount || isNaN(amt) || amt <= 0) {
+        newErrors[r.id] = "Enter an amount";
+        valid = false;
+      }
+    });
+
+    if (!valid) {
+      setErrors(newErrors);
+      return;
+    }
 
     setSaving(true);
-    setError("");
+    setGlobalError("");
 
     try {
-      await api.post("/transactions", {
-        businessId: bizId,
-        type,
-        amount: amt,
-        mode,
-        category: cat || null,
-        description: desc || null,
-        txDate: date,
-      });
+      await Promise.all(rows.map(r => {
+        const tpl = getTpl(r.templateId);
+        const biz = getBiz(tpl.bizType);
+
+        if (!biz) throw new Error(`Business not found for ${tpl.label}`);
+
+        return api.post("/transactions", {
+          businessId: biz.id,
+          type: tpl.type,
+          amount: parseFloat(r.amount),
+          mode: tpl.mode,
+          category: tpl.category,
+          description: r.note || tpl.label,
+          txDate: date,
+        });
+      }));
 
       qc.invalidateQueries(["dashboard"]);
-      qc.invalidateQueries(["bizTxs"]);
       qc.invalidateQueries(["allTxs"]);
+      qc.invalidateQueries(["bizTxs"]);
       qc.invalidateQueries(["reports"]);
 
-      onClose();
+      setSaved(true);
+      setRows([newRow(rowCounter++)]);
+      setErrors({});
+      setTimeout(() => setSaved(false), 3000);
+
     } catch (e) {
-      setError(e.response?.data?.error || "Save failed");
+      setGlobalError(e.message || "Save failed");
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={S.mBox}>
-
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-          <h2 style={{ fontSize:20, fontWeight:700, color:C.slate900 }}>Add Entry</h2>
-          <button onClick={onClose} style={{ background:"none", border:"none", fontSize:26, cursor:"pointer", color:C.slate500 }}>×</button>
+    <div>
+      <div style={{ ...S.header, justifyContent:"space-between", alignItems:"center" }}>
+        <div>
+          <div style={S.title}>⚡ Bulk Entry</div>
+          <div style={S.sub}>Add multiple transactions · save at once</div>
         </div>
 
-        <div style={S.toggle}>
-          <button style={{ ...S.tBtn, background:type==="in"?C.green:"transparent", color:type==="in"?C.white:C.slate500 }}
-            onClick={()=>{ setType("in"); setCat(""); }}>↑ Cash IN</button>
+        {openVoice && (
+          <button onClick={openVoice} style={{ padding:"8px 12px" }}>
+            🎙️ Voice
+          </button>
+        )}
+      </div>
 
-          <button style={{ ...S.tBtn, background:type==="out"?C.red:"transparent", color:type==="out"?C.white:C.slate500 }}
-            onClick={()=>{ setType("out"); setCat(""); }}>↓ Cash OUT</button>
+      <div style={{ margin:"0 16px", ...S.card }}>
+        <div style={{ display:"flex", gap:10 }}>
+          <div style={{ flex:1 }}>💵 {INR(sharedCash)}</div>
+          <div style={{ flex:1 }}>↑ {INR(todayIn)}</div>
+          <div style={{ flex:1 }}>↓ {INR(todayOut)}</div>
         </div>
+      </div>
 
-        <div style={{ textAlign:"center", margin:"20px 0 4px" }}>
-          <span style={{ fontSize:26, color:C.slate300 }}>₹</span>
-          <input
-            type="number"
-            value={amount}
-            onChange={e=>setAmount(e.target.value)}
-            style={{
-              border:"none",
-              borderBottom:`2.5px solid ${C.blue}`,
-              fontSize:36,
-              textAlign:"center",
-              width:"80%"
-            }}
-          />
-        </div>
+      <div style={{ padding:"16px" }}>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} />
 
-        {/* Business */}
-        <span style={S.fLabel}>Business</span>
-        <div style={{ display:"flex", gap:8, marginTop:8, flexWrap:"wrap" }}>
-          {businesses.map(b=>(
-            <button key={b.id}
-              style={{ ...S.pill, ...(bizId===b.id?{background:b.color,color:C.white}:{}) }}
-              onClick={()=>setBizId(b.id)}>
-              {b.icon} {b.name.split(" ")[0]}
-            </button>
-          ))}
-        </div>
+        {rows.map((row) => (
+          <div key={row.id}>
+            <input
+              value={row.amount}
+              onChange={e => updateRow(row.id, "amount", e.target.value)}
+            />
+          </div>
+        ))}
 
-        {/* Payment */}
-        <span style={S.fLabel}>Payment Mode</span>
-        <div style={{ display:"flex", gap:8, marginTop:8 }}>
-          <button style={{ ...S.pill, ...(mode==="cash"?{background:C.amber,color:C.white}:{}) }}
-            onClick={()=>setMode("cash")}>💵 Cash</button>
+        <button onClick={addRow}>+ Add Row</button>
 
-          <button style={{ ...S.pill, ...(mode==="bank"?{background:C.blue,color:C.white}:{}) }}
-            onClick={()=>setMode("bank")}>🏦 Bank</button>
-        </div>
-
-        {/* Category */}
-        <span style={S.fLabel}>Category</span>
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
-          {CATS[type].map(c=>(
-            <button key={c}
-              style={{ ...S.chip, ...(cat===c?{background:C.blue,color:C.white}:{}) }}
-              onClick={()=>setCat(c===cat?"":c)}>
-              {c}
-            </button>
-          ))}
-        </div>
-
-        {/* Note */}
-        <span style={S.fLabel}>Note</span>
-        <input style={S.input} value={desc} onChange={e=>setDesc(e.target.value)} />
-
-        {/* Date */}
-        <span style={S.fLabel}>Transaction Date</span>
-        <input type="date" value={date} max={todayStr()}
-          onChange={e=>setDate(e.target.value)}
-          style={{ ...S.input, marginTop:8 }} />
-
-        {error && <div style={{ color:C.red }}>{error}</div>}
-
-        <button onClick={save} disabled={saving}
-          style={{ ...S.btn, background:type==="in"?C.green:C.red }}>
-          {saving ? "Saving..." : "Save Entry"}
+        <button onClick={saveAll}>
+          Save All {INR(batchTotal)}
         </button>
-
       </div>
     </div>
   );
