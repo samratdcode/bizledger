@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { useAuthStore } from "./store.js";
 
 import Login from "./screens/Login.jsx";
@@ -12,12 +12,13 @@ import BizDetail from "./screens/BizDetail.jsx";
 import AddEntryModal from "./components/AddEntryModal.jsx";
 import TransferModal from "./components/TransferModal.jsx";
 import VoiceEntryModal from "./components/VoiceEntryModal.jsx";
+
 import NavBar from "./components/NavBar.jsx";
 
 export default function App() {
   const { user } = useAuthStore();
 
-  const [screen, setScreenRaw] = useState("dashboard");
+  const [screen, setScreen] = useState("dashboard");
   const [activeBiz, setActiveBiz] = useState(null);
 
   const [showAdd, setShowAdd] = useState(false);
@@ -25,27 +26,25 @@ export default function App() {
   const [showVoice, setShowVoice] = useState(false);
   const [transferMode, setTransferMode] = useState("business");
 
-  // ✅ Normalize screen values (prevents bugs)
-  const setScreen = (s, biz = null) => {
-    const normalized = (s || "").trim().toLowerCase();
-    setActiveBiz(biz);
-    setScreenRaw(normalized);
-  };
-
   if (!user) return <Login />;
+
+  const goTo = (s, biz = null) => {
+    setActiveBiz(biz);
+    setScreen(s);
+  };
 
   const openTransfer = (mode = "business") => {
     setTransferMode(mode);
     setShowTransfer(true);
   };
 
-  // ✅ SINGLE RENDER SOURCE (no overlap possible)
-  const content = useMemo(() => {
+  // 🧠 SINGLE SCREEN RENDERER
+  const renderScreen = () => {
     switch (screen) {
       case "dashboard":
-        return <Dashboard goTo={setScreen} openTransfer={openTransfer} />;
+        return <Dashboard goTo={goTo} openTransfer={openTransfer} />;
 
-      case "bizdetail":
+      case "bizDetail":
         return (
           <BizDetail
             biz={activeBiz}
@@ -67,9 +66,9 @@ export default function App() {
         return <Partners openTransfer={openTransfer} />;
 
       default:
-        return <Dashboard goTo={setScreen} openTransfer={openTransfer} />;
+        return <Dashboard goTo={goTo} openTransfer={openTransfer} />;
     }
-  }, [screen, activeBiz]);
+  };
 
   return (
     <div
@@ -79,63 +78,35 @@ export default function App() {
         minHeight: "100dvh",
         background: "#F8FAFC",
         position: "relative",
-        paddingBottom: 72,
+        overflowX: "hidden",
       }}
     >
-      {/* MAIN SCREEN */}
-      {content}
+      {/* ✅ SCREEN LAYER */}
+      <div style={{ paddingBottom: 80 }}>
+        {renderScreen()}
+      </div>
 
-      {/* FABs — ALWAYS AVAILABLE */}
-      <>
-        {/* + Add */}
-        <button
-          onClick={() => setShowAdd(true)}
-          style={{
-            position: "fixed",
-            bottom: 80,
-            right: "max(16px, calc(50vw - 224px))",
-            width: 56,
-            height: 56,
-            borderRadius: "50%",
-            background: "#2563EB",
-            color: "#fff",
-            border: "none",
-            fontSize: 28,
-            cursor: "pointer",
-            zIndex: 1000,
-            boxShadow: "0 4px 20px rgba(37,99,235,0.45)",
-          }}
-        >
-          +
-        </button>
-
-        {/* 🎙 Voice */}
+      {/* ✅ FLOATING LAYER */}
+      {screen === "quickadd" ? (
         <button
           onClick={() => setShowVoice(true)}
-          style={{
-            position: "fixed",
-            bottom: 150,
-            right: "max(16px, calc(50vw - 224px))",
-            width: 48,
-            height: 48,
-            borderRadius: "50%",
-            background: "#EF4444",
-            color: "#fff",
-            border: "none",
-            fontSize: 20,
-            cursor: "pointer",
-            zIndex: 1000,
-            boxShadow: "0 4px 20px rgba(239,68,68,0.45)",
-          }}
+          style={fabStyle("#EF4444")}
         >
           🎙️
         </button>
-      </>
+      ) : (
+        <button
+          onClick={() => setShowAdd(true)}
+          style={fabStyle("#2563EB")}
+        >
+          +
+        </button>
+      )}
 
-      {/* NAV */}
-      <NavBar screen={screen} setScreen={setScreen} />
+      {/* ✅ NAVBAR */}
+      <NavBar screen={screen} setScreen={goTo} />
 
-      {/* MODALS */}
+      {/* ✅ MODAL LAYER */}
       {showAdd && (
         <AddEntryModal
           onClose={() => setShowAdd(false)}
@@ -157,3 +128,23 @@ export default function App() {
     </div>
   );
 }
+
+// ✅ FAB STYLE (centralized)
+const fabStyle = (color) => ({
+  position: "fixed",
+  bottom: 80,
+  right: "max(16px, calc(50vw - 224px))",
+  width: 56,
+  height: 56,
+  borderRadius: "50%",
+  background: color,
+  color: "#fff",
+  border: "none",
+  fontSize: 24,
+  cursor: "pointer",
+  zIndex: 100,
+  boxShadow: "0 6px 24px rgba(0,0,0,0.25)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+});
