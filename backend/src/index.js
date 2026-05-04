@@ -1,79 +1,55 @@
 require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
+const express   = require("express");
+const cors      = require("cors");
 const rateLimit = require("express-rate-limit");
 
-const authRoutes = require("./routes/auth");
-const businessRoutes = require("./routes/businesses");
-const transactionRoutes = require("./routes/transactions");
-const transferRoutes = require("./routes/transfers");
-const partnerRoutes = require("./routes/partners");
-const reportRoutes = require("./routes/reports");
-const dashboardRoutes = require("./routes/dashboard");
+// ── Crash guard — keep server alive on unhandled errors ──────────
+process.on("uncaughtException",  (err) => console.error("UNCAUGHT:",  err.message, err.stack));
+process.on("unhandledRejection", (r)   => console.error("UNHANDLED:", r));
 
-const app = express();
+// ── Validate required env vars at startup ────────────────────────
+const REQUIRED_ENV = ["DATABASE_URL","JWT_SECRET","JWT_REFRESH_SECRET"];
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length) {
+  console.error("FATAL: Missing required env vars:", missing.join(", "));
+  process.exit(1);
+}
+
+const app  = express();
 const PORT = process.env.PORT || 4000;
 
-// Prevent crashes
-process.on("uncaughtException", (err) => {
-  console.error("UNCAUGHT EXCEPTION:", err.message, err.stack);
-});
-process.on("unhandledRejection", (reason) => {
-  console.error("UNHANDLED REJECTION:", reason);
-});
-
-// Railway fix
 app.set("trust proxy", 1);
 
-// CORS
 app.use(cors({
-  origin: (origin, callback) => callback(null, true),
+  origin: (origin, cb) => cb(null, true),
   credentials: true,
   methods: ["GET","POST","PUT","DELETE","OPTIONS","PATCH"],
   allowedHeaders: ["Content-Type","Authorization","Accept"],
 }));
-
 app.options("*", cors());
 
-// Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiter
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
-  message: { error: "Too many attempts. Try again in 15 minutes." },
-  keyGenerator: (req) =>
-    req.ip || req.headers["x-forwarded-for"] || "unknown",
-  handler: (req, res) => {
-    res.status(429).json({
-      error: "Too many attempts. Try again in 15 minutes.",
-    });
-  },
+  keyGenerator: (req) => req.ip || req.headers["x-forwarded-for"] || "unknown",
+  handler: (req, res) => res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." }),
 });
 
-// Routes
-app.get("/health", (_, res) =>
-  res.json({ status: "ok", ts: new Date() })
-);
+app.get("/health", (_, res) => res.json({ status: "ok", ts: new Date() }));
+app.use("/api/auth",         loginLimiter, require("./routes/auth"));
+app.use("/api/businesses",   require("./routes/businesses"));
+app.use("/api/transactions", require("./routes/transactions"));
+app.use("/api/transfers",    require("./routes/transfers"));
+app.use("/api/partners",     require("./routes/partners"));
+app.use("/api/reports",      require("./routes/reports"));
+app.use("/api/dashboard",    require("./routes/dashboard"));
 
-app.use("/api/auth", loginLimiter, authRoutes);
-app.use("/api/businesses", businessRoutes);
-app.use("/api/transactions", transactionRoutes);
-app.use("/api/transfers", transferRoutes);
-app.use("/api/partners", partnerRoutes);
-app.use("/api/reports", reportRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-
-// Global error handler
 app.use((err, req, res, next) => {
-  console.error("GLOBAL ERROR:", err.message, err.stack);
-  res.status(err.status || 500).json({
-    error: err.message || "Internal server error",
-  });
+  console.error("GLOBAL ERR:", err.message);
+  res.status(err.status || 500).json({ error: err.message || "Internal server error" });
 });
 
-app.listen(PORT, () => {
-  console.log(`BizLedger API running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ BizLedger API running on port ${PORT}`));

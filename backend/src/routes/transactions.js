@@ -5,12 +5,7 @@ const { auth, adminOnly } = require("../middleware/auth");
 // GET /api/transactions
 router.get("/", auth, async (req, res) => {
   try {
-    const {
-      businessId, type, mode, category,
-      search, startDate, endDate,
-      page = 1, limit = 50,
-    } = req.query;
-
+    const { businessId, type, mode, category, search, startDate, endDate, page = 1, limit = 50 } = req.query;
     const where = { isDeleted: false };
     if (businessId) where.businessId = businessId;
     if (type)       where.type = type;
@@ -22,9 +17,8 @@ router.get("/", auth, async (req, res) => {
       if (startDate) where.txDate.gte = new Date(startDate);
       if (endDate)   where.txDate.lte = new Date(endDate + "T23:59:59");
     }
-
-    const skip  = (parseInt(page) - 1) * parseInt(limit);
-    const [transactions, total] = await Promise.all([
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const [txs, total] = await Promise.all([
       prisma.transaction.findMany({
         where,
         include: {
@@ -32,14 +26,13 @@ router.get("/", auth, async (req, res) => {
           user:     { select: { id: true, name: true } },
         },
         orderBy: { txDate: "desc" },
-        skip,
-        take: parseInt(limit),
+        skip, take: parseInt(limit),
       }),
       prisma.transaction.count({ where }),
     ]);
-
-    res.json({ transactions, total, page: parseInt(page), limit: parseInt(limit) });
+    res.json({ transactions: txs, total, page: parseInt(page), limit: parseInt(limit) });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Failed to fetch transactions" });
   }
 });
@@ -50,91 +43,73 @@ router.post("/", auth, async (req, res) => {
     const { businessId, type, amount, mode, category, description, txDate } = req.body;
     if (!businessId || !type || !amount)
       return res.status(400).json({ error: "businessId, type, and amount are required" });
-    if (!["in","out"].includes(type))
+    if (!["in", "out"].includes(type))
       return res.status(400).json({ error: "type must be 'in' or 'out'" });
-    if (!["cash","bank"].includes(mode || "cash"))
-      return res.status(400).json({ error: "mode must be 'cash' or 'bank'" });
-
     const amt = parseFloat(amount);
     if (isNaN(amt) || amt <= 0)
       return res.status(400).json({ error: "Amount must be a positive number" });
 
-    // Use a transaction to update balances atomically
     const result = await prisma.$transaction(async (tx) => {
-      const transaction = await tx.transaction.create({
+      const t = await tx.transaction.create({
         data: {
-          businessId,
-          userId:      req.user.id,
-          type,
-          amount:      amt,
-          mode:        mode || "cash",
-          category:    category || null,
+          businessId, userId: req.user.id, type,
+          amount: amt, mode: mode || "cash",
+          category: category || null,
           description: description || null,
-          txDate:      txDate ? new Date(txDate) : new Date(),
+          txDate: txDate ? new Date(txDate) : new Date(),
         },
         include: {
           business: { select: { id: true, name: true, icon: true, color: true } },
           user:     { select: { id: true, name: true } },
         },
       });
-
       const delta = type === "in" ? amt : -amt;
-
       if ((mode || "cash") === "cash") {
-        // Update shared cash pool
+        // FIX: null-guard pool before accessing pool.id
         const pool = await tx.sharedCashPool.findFirst();
-        await tx.sharedCashPool.update({
-          where: { id: pool.id },
-          data:  { balance: { increment: delta } },
-        });
+        if (!pool) throw new Error("Cash pool not initialised. Run seed first.");
+        await tx.sharedCashPool.update({ where: { id: pool.id }, data: { balance: { increment: delta } } });
       } else {
-        // Update business bank balance
-        await tx.business.update({
-          where: { id: businessId },
-          data:  { bankBalance: { increment: delta } },
-        });
+        await tx.business.update({ where: { id: businessId }, data: { bankBalance: { increment: delta } } });
       }
-
-      return transaction;
+      return t;
     });
-
     res.status(201).json({ transaction: result });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to create transaction" });
+    res.status(500).json({ error: err.message || "Failed to create transaction" });
   }
 });
 
-// PUT /api/transactions/:id — admin only
+// PUT /api/transactions/:id
 router.put("/:id", auth, adminOnly, async (req, res) => {
   try {
     const { category, description, txDate } = req.body;
-    const transaction = await prisma.transaction.update({
+    const t = await prisma.transaction.update({
       where: { id: req.params.id },
       data:  { category, description, txDate: txDate ? new Date(txDate) : undefined },
     });
-    res.json({ transaction });
+    res.json({ transaction: t });
   } catch {
     res.status(500).json({ error: "Failed to update transaction" });
   }
 });
 
-// DELETE /api/transactions/:id — admin only (soft delete, reverses balance)
+// DELETE /api/transactions/:id
 router.delete("/:id", auth, adminOnly, async (req, res) => {
   try {
     await prisma.$transaction(async (tx) => {
-      const txn = await tx.transaction.findUnique({ where: { id: req.params.id } });
-      if (!txn || txn.isDeleted) throw new Error("Transaction not found");
-
+      const t = await tx.transaction.findUnique({ where: { id: req.params.id } });
+      if (!t || t.isDeleted) throw new Error("Transaction not found");
       await tx.transaction.update({ where: { id: req.params.id }, data: { isDeleted: true } });
-
-      // Reverse the balance change
-      const delta = txn.type === "in" ? -txn.amount : txn.amount;
-      if (txn.mode === "cash") {
+      const delta = t.type === "in" ? -t.amount : t.amount;
+      if (t.mode === "cash") {
+        // FIX: null-guard pool
         const pool = await tx.sharedCashPool.findFirst();
+        if (!pool) throw new Error("Cash pool not initialised.");
         await tx.sharedCashPool.update({ where: { id: pool.id }, data: { balance: { increment: delta } } });
       } else {
-        await tx.business.update({ where: { id: txn.businessId }, data: { bankBalance: { increment: delta } } });
+        await tx.business.update({ where: { id: t.businessId }, data: { bankBalance: { increment: delta } } });
       }
     });
     res.json({ message: "Transaction deleted" });

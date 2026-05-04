@@ -2,31 +2,34 @@ const router = require("express").Router();
 const prisma = require("../db");
 const { auth } = require("../middleware/auth");
 
-// GET /api/reports?businessId=&startDate=&endDate=&month=
 router.get("/", auth, async (req, res) => {
   try {
     const { businessId, startDate, endDate, month } = req.query;
 
-    let dateFilter = {};
+    let txDateFilter  = {};
+    let pcoDateFilter = {}; // FIX: always keep in sync with txDateFilter
+
     if (month) {
       const [y, m] = month.split("-").map(Number);
-      dateFilter = { gte: new Date(y, m - 1, 1), lte: new Date(y, m, 0, 23, 59, 59) };
+      txDateFilter  = { gte: new Date(y, m - 1, 1), lte: new Date(y, m, 0, 23, 59, 59) };
+      pcoDateFilter = txDateFilter; // same range for personal cash outs
     } else if (startDate || endDate) {
-      if (startDate) dateFilter.gte = new Date(startDate);
-      if (endDate)   dateFilter.lte = new Date(endDate + "T23:59:59");
+      if (startDate) txDateFilter.gte = new Date(startDate);
+      if (endDate)   txDateFilter.lte = new Date(endDate + "T23:59:59");
+      pcoDateFilter = txDateFilter;
     }
+    // If no date filter at all, both remain {} (fetch all — valid for admin overview)
 
-    const where = { isDeleted: false };
-    if (businessId && businessId !== "all") where.businessId = businessId;
-    if (Object.keys(dateFilter).length) where.txDate = dateFilter;
+    const txWhere = { isDeleted: false };
+    if (businessId && businessId !== "all") txWhere.businessId = businessId;
+    if (Object.keys(txDateFilter).length)   txWhere.txDate = txDateFilter;
 
-    // Build personal cash out date filter using paymentDate
     const pcoWhere = {};
-    if (Object.keys(dateFilter).length) pcoWhere.paymentDate = dateFilter;
+    if (Object.keys(pcoDateFilter).length) pcoWhere.paymentDate = pcoDateFilter;
 
     const [transactions, drawings, personalOuts, pool, businesses] = await Promise.all([
       prisma.transaction.findMany({
-        where,
+        where: txWhere,
         include: { business: { select: { id: true, name: true, icon: true, color: true } } },
         orderBy: { txDate: "desc" },
       }),
@@ -45,27 +48,21 @@ router.get("/", auth, async (req, res) => {
       prisma.business.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
     ]);
 
-    // Totals
-    const totalIn  = transactions.filter((t) => t.type === "in" ).reduce((s, t) => s + t.amount, 0);
-    const totalOut = transactions.filter((t) => t.type === "out").reduce((s, t) => s + t.amount, 0);
-    const totalDrawings     = drawings.reduce((s, d) => s + d.amount, 0);
+    const totalIn          = transactions.filter(t => t.type === "in" ).reduce((s, t) => s + t.amount, 0);
+    const totalOut         = transactions.filter(t => t.type === "out").reduce((s, t) => s + t.amount, 0);
+    const totalDrawings    = drawings.reduce((s, d) => s + d.amount, 0);
     const totalPersonalOuts = personalOuts.reduce((s, p) => s + p.amount, 0);
-    const totalPartnerOuts  = totalDrawings + totalPersonalOuts;
 
-    // By business
     const byBusiness = {};
-    transactions.forEach((t) => {
-      if (!byBusiness[t.businessId]) {
-        byBusiness[t.businessId] = { ...t.business, income: 0, expenses: 0, count: 0 };
-      }
+    transactions.forEach(t => {
+      if (!byBusiness[t.businessId]) byBusiness[t.businessId] = { ...t.business, income: 0, expenses: 0, count: 0 };
       if (t.type === "in")  byBusiness[t.businessId].income   += t.amount;
       if (t.type === "out") byBusiness[t.businessId].expenses += t.amount;
       byBusiness[t.businessId].count++;
     });
 
-    // By category
     const byCategory = {};
-    transactions.forEach((t) => {
+    transactions.forEach(t => {
       const cat = t.category || "Uncategorised";
       if (!byCategory[cat]) byCategory[cat] = { in: 0, out: 0, count: 0 };
       byCategory[cat][t.type] += t.amount;
@@ -74,13 +71,12 @@ router.get("/", auth, async (req, res) => {
 
     res.json({
       summary: {
-        totalIn,
-        totalOut,
+        totalIn, totalOut,
         operatingProfit:  totalIn - totalOut,
         totalDrawings,
         totalPersonalOuts,
-        totalPartnerOuts,
-        netAfterDrawings: totalIn - totalOut - totalPartnerOuts,
+        totalPartnerOuts: totalDrawings + totalPersonalOuts,
+        netAfterDrawings: totalIn - totalOut - totalDrawings - totalPersonalOuts,
       },
       byBusiness:   Object.values(byBusiness),
       byCategory,
@@ -88,7 +84,7 @@ router.get("/", auth, async (req, res) => {
       personalOuts,
       balances: {
         sharedCash: pool?.balance || 0,
-        businesses: businesses.map((b) => ({ id: b.id, name: b.name, icon: b.icon, color: b.color, bank: b.bankBalance })),
+        businesses: businesses.map(b => ({ id: b.id, name: b.name, icon: b.icon, color: b.color, bank: b.bankBalance })),
         totalBank:  businesses.reduce((s, b) => s + b.bankBalance, 0),
       },
       transactions,

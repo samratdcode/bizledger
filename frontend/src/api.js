@@ -1,72 +1,51 @@
 import axios from "axios";
+import { useAuthStore } from "./store.js";
 
-const BASE = "/api";
+const BASE = import.meta.env.VITE_API_URL || "/api";
+const api  = axios.create({ baseURL: BASE });
 
-const api = axios.create({ baseURL: BASE });
-
-// Attach access token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("accessToken");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Auto-refresh
 let refreshing = false;
 let queue = [];
 
 api.interceptors.response.use(
-  (res) => res,
+  res => res,
   async (err) => {
     const original = err.config;
-
     if (err.response?.status === 401 && !original._retry) {
       if (refreshing) {
-        return new Promise((resolve, reject) => {
-          queue.push({ resolve, reject });
-        }).then(() => api(original));
+        // FIX: resolve each queued request with its own retry, not undefined
+        return new Promise((res, rej) => queue.push({ res, rej }))
+          .then(() => api(original));
       }
-
       original._retry = true;
       refreshing = true;
-
       try {
-        const refreshToken = localStorage.getItem("refreshToken");
-        if (!refreshToken) throw new Error("No refresh token");
-
-        const { data } = await api.post("/auth/refresh", { refreshToken });
-
+        const rt = localStorage.getItem("refreshToken");
+        if (!rt) throw new Error("No refresh token");
+        const { data } = await axios.post(`${BASE}/auth/refresh`, { refreshToken: rt });
         localStorage.setItem("accessToken", data.accessToken);
-
-        queue.forEach(({ resolve }) => resolve());
+        queue.forEach(({ res }) => res());
         queue = [];
-
         return api(original);
-
       } catch {
-        queue.forEach(({ reject }) => reject());
+        queue.forEach(({ rej }) => rej());
         queue = [];
-
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        window.location.href = "/";
-
+        // FIX: Use zustand logout instead of hard page reload
+        // This gives a smooth React transition to login screen
+        useAuthStore.getState().logout();
       } finally {
         refreshing = false;
       }
     }
-
     return Promise.reject(err);
   }
 );
 
 export default api;
-
-// helpers
-export const formatINR = (n) =>
-  "₹" + Number(n || 0).toLocaleString("en-IN");
-
-export const currentMonth = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-};
+// NOTE: MONTH_STR removed from here — import from styles.js to avoid duplicate exports

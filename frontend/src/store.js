@@ -1,7 +1,13 @@
 import { create } from "zustand";
 
+// FIX: Wrap JSON.parse in try-catch — corrupted localStorage crashes the app otherwise
+const getStoredUser = () => {
+  try { return JSON.parse(localStorage.getItem("user") || "null"); }
+  catch { localStorage.clear(); return null; }
+};
+
 export const useAuthStore = create((set) => ({
-  user:  JSON.parse(localStorage.getItem("user") || "null"),
+  user:  getStoredUser(),
   token: localStorage.getItem("accessToken") || null,
 
   setAuth: (user, accessToken, refreshToken) => {
@@ -12,9 +18,7 @@ export const useAuthStore = create((set) => ({
   },
 
   logout: () => {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("user");
+    localStorage.clear();
     set({ user: null, token: null });
   },
 }));

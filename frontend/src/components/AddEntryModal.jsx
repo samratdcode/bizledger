@@ -1,176 +1,122 @@
 import React, { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import api from "../api.js";
-import { INR, S, C } from "../styles.js";
+import { S, C, INR } from "../styles.js";
 
-// ── Templates ────────────────────────────────────────────────────
-const TEMPLATES = [
-  { id:"t1", label:"Medicine Sale", sublabel:"Cash", icon:"💊", color:"#10B981", bgColor:"#ECFDF5", borderColor:"#6EE7B7", bizType:"pharmacy", type:"in", mode:"cash", category:"Medicine Sale" },
-  { id:"t2", label:"Medicine Sale", sublabel:"GPay", icon:"💊", color:"#2563EB", bgColor:"#EFF6FF", borderColor:"#93C5FD", bizType:"pharmacy", type:"in", mode:"bank", category:"Medicine Sale" },
-  { id:"t3", label:"Nursing Home", sublabel:"Cash", icon:"🏥", color:"#3B82F6", bgColor:"#EFF6FF", borderColor:"#93C5FD", bizType:"nursing_home", type:"in", mode:"cash", category:"Collection" },
-  { id:"t4", label:"Diagnostic", sublabel:"Cash", icon:"🔬", color:"#8B5CF6", bgColor:"#F5F3FF", borderColor:"#C4B5FD", bizType:"diagnostic", type:"in", mode:"cash", category:"Collection" },
-  { id:"t5", label:"Diagnostic", sublabel:"UPI", icon:"🔬", color:"#2563EB", bgColor:"#EFF6FF", borderColor:"#93C5FD", bizType:"diagnostic", type:"in", mode:"bank", category:"Collection" },
-];
-
+const CATS = {
+  in:  ["Bed Charge","Lab Test","Medicine Sale","OPD Fee","Admission","Consultation","Collection","Other"],
+  out: ["Staff Salary","Medicine Purchase","Electricity","Rent","Equipment","Maintenance","Other"],
+};
 const todayStr = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 };
 
-const newRow = (id) => ({ id, templateId: "t1", amount: "", note: "" });
-
-let rowCounter = 1;
-
-export default function QuickAdd({ openVoice }) {
+export default function AddEntryModal({ onClose, prefillBiz }) {
   const qc = useQueryClient();
-
-  const [date, setDate] = useState(todayStr());
-  const [rows, setRows] = useState([newRow(rowCounter++)]);
+  const [type,   setType]   = useState("in");
+  const [amount, setAmount] = useState("");
+  const [bizId,  setBizId]  = useState(prefillBiz?.id || "");
+  const [mode,   setMode]   = useState("cash");
+  const [cat,    setCat]    = useState("");
+  const [desc,   setDesc]   = useState("");
+  const [date,   setDate]   = useState(todayStr());
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [errors, setErrors] = useState({});
-  const [globalError, setGlobalError] = useState("");
+  const [error,  setError]  = useState("");
 
-  const { data: bizData } = useQuery({
-    queryKey: ["businesses"],
-    queryFn: () => api.get("/businesses").then(r => r.data),
-  });
-
-  const { data: dashData } = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: () => api.get("/dashboard").then(r => r.data),
-    refetchInterval: 20000,
-  });
-
+  const { data: bizData }  = useQuery({ queryKey:["businesses"], queryFn:()=>api.get("/businesses").then(r=>r.data) });
+  const { data: dashData } = useQuery({ queryKey:["dashboard"],  queryFn:()=>api.get("/dashboard").then(r=>r.data) });
   const businesses = bizData?.businesses || [];
   const sharedCash = dashData?.sharedCash || 0;
-  const todayIn = dashData?.today?.in || 0;
-  const todayOut = dashData?.today?.out || 0;
-
+  const chosenBiz  = businesses.find(b => b.id === bizId);
   const isBackdated = date !== todayStr();
 
-  const getBiz = (bizType) => businesses.find(b => b.type === bizType);
-  const getTpl = (id) => TEMPLATES.find(t => t.id === id);
+  const save = async () => {
+    // FIX: Separate validation messages so user knows exactly what to fix
+    if (!bizId)  return setError("Please select a business");
+    if (!amount) return setError("Please enter an amount");
+    const amt = parseFloat(amount);
+    if (isNaN(amt) || amt <= 0) return setError("Amount must be greater than zero");
 
-  const batchTotal = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
-
-  const addRow = () => setRows(prev => [...prev, newRow(rowCounter++)]);
-
-  const removeRow = (id) => {
-    if (rows.length === 1) return;
-    setRows(prev => prev.filter(r => r.id !== id));
-    setErrors(prev => {
-      const e = { ...prev };
-      delete e[id];
-      return e;
-    });
-  };
-
-  const updateRow = (id, field, value) => {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
-    if (errors[id]) {
-      setErrors(prev => {
-        const e = { ...prev };
-        delete e[id];
-        return e;
-      });
-    }
-  };
-
-  const saveAll = async () => {
-    const newErrors = {};
-    let valid = true;
-
-    rows.forEach(r => {
-      const amt = parseFloat(r.amount);
-      if (!r.amount || isNaN(amt) || amt <= 0) {
-        newErrors[r.id] = "Enter an amount";
-        valid = false;
-      }
-    });
-
-    if (!valid) {
-      setErrors(newErrors);
-      return;
-    }
-
-    setSaving(true);
-    setGlobalError("");
-
+    setSaving(true); setError("");
     try {
-      await Promise.all(rows.map(r => {
-        const tpl = getTpl(r.templateId);
-        const biz = getBiz(tpl.bizType);
-
-        if (!biz) throw new Error(`Business not found for ${tpl.label}`);
-
-        return api.post("/transactions", {
-          businessId: biz.id,
-          type: tpl.type,
-          amount: parseFloat(r.amount),
-          mode: tpl.mode,
-          category: tpl.category,
-          description: r.note || tpl.label,
-          txDate: date,
-        });
-      }));
-
+      await api.post("/transactions", {
+        businessId:  bizId,
+        type, amount: amt, mode,
+        category:    cat  || null,
+        description: desc || null,
+        txDate:      date,
+      });
       qc.invalidateQueries(["dashboard"]);
-      qc.invalidateQueries(["allTxs"]);
       qc.invalidateQueries(["bizTxs"]);
+      qc.invalidateQueries(["allTxs"]);
       qc.invalidateQueries(["reports"]);
-
-      setSaved(true);
-      setRows([newRow(rowCounter++)]);
-      setErrors({});
-      setTimeout(() => setSaved(false), 3000);
-
+      onClose();
     } catch (e) {
-      setGlobalError(e.message || "Save failed");
-    } finally {
-      setSaving(false);
-    }
+      setError(e.response?.data?.error || "Save failed. Try again.");
+    } finally { setSaving(false); }
   };
 
   return (
-    <div>
-      <div style={{ ...S.header, justifyContent:"space-between", alignItems:"center" }}>
-        <div>
-          <div style={S.title}>⚡ Bulk Entry</div>
-          <div style={S.sub}>Add multiple transactions · save at once</div>
+    <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={S.mBox}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+          <h2 style={{ fontSize:20, fontWeight:700, color:C.slate900, margin:0 }}>Add Entry</h2>
+          <button onClick={onClose} style={{ background:"none", border:"none", fontSize:26, cursor:"pointer", color:C.slate500 }}>×</button>
         </div>
 
-        {openVoice && (
-          <button onClick={openVoice} style={{ padding:"8px 12px" }}>
-            🎙️ Voice
-          </button>
-        )}
-      </div>
-
-      <div style={{ margin:"0 16px", ...S.card }}>
-        <div style={{ display:"flex", gap:10 }}>
-          <div style={{ flex:1 }}>💵 {INR(sharedCash)}</div>
-          <div style={{ flex:1 }}>↑ {INR(todayIn)}</div>
-          <div style={{ flex:1 }}>↓ {INR(todayOut)}</div>
+        <div style={S.toggle}>
+          <button style={{ ...S.tBtn, background:type==="in"?C.green:"transparent", color:type==="in"?C.white:C.slate500 }} onClick={() => { setType("in"); setCat(""); }}>↑ Cash IN</button>
+          <button style={{ ...S.tBtn, background:type==="out"?C.red:"transparent",  color:type==="out"?C.white:C.slate500 }} onClick={() => { setType("out"); setCat(""); }}>↓ Cash OUT</button>
         </div>
-      </div>
 
-      <div style={{ padding:"16px" }}>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+        <div style={{ textAlign:"center", margin:"20px 0 4px" }}>
+          <span style={{ fontSize:26, color:C.slate300, verticalAlign:"middle" }}>₹</span>
+          <input type="number" placeholder="0" value={amount}
+            onChange={e => setAmount(e.target.value)} autoFocus
+            style={{ border:"none", borderBottom:`2.5px solid ${C.blue}`, padding:"8px 0", fontSize:36, fontWeight:900, outline:"none", textAlign:"center", background:"transparent", fontFamily:"inherit", width:"80%" }} />
+        </div>
 
-        {rows.map((row) => (
-          <div key={row.id}>
-            <input
-              value={row.amount}
-              onChange={e => updateRow(row.id, "amount", e.target.value)}
-            />
-          </div>
-        ))}
+        <span style={S.fLabel}>Business</span>
+        <div style={{ display:"flex", gap:8, marginTop:8, flexWrap:"wrap" }}>
+          {businesses.length === 0 && <div style={{ fontSize:13, color:C.slate400 }}>Loading...</div>}
+          {businesses.map(b => (
+            <button key={b.id} style={{ ...S.pill, ...(bizId===b.id?{background:b.color,color:C.white,borderColor:b.color}:{}) }} onClick={() => setBizId(b.id)}>
+              {b.icon} {b.name.split(" ")[0]}
+            </button>
+          ))}
+        </div>
 
-        <button onClick={addRow}>+ Add Row</button>
+        <span style={S.fLabel}>Payment Mode</span>
+        <div style={{ display:"flex", gap:8, marginTop:8 }}>
+          <button style={{ ...S.pill, ...(mode==="cash"?{background:C.amber,color:C.white,borderColor:C.amber}:{}) }} onClick={() => setMode("cash")}>💵 Shared Cash</button>
+          <button style={{ ...S.pill, ...(mode==="bank"?{background:C.blue, color:C.white,borderColor:C.blue }:{}) }} onClick={() => setMode("bank")}>🏦 Bank / UPI</button>
+        </div>
+        {mode==="cash" && <div style={{ marginTop:6, fontSize:12, color:"#92400E", background:"#FFFBEB", borderRadius:8, padding:"7px 10px" }}>Shared cash pool available: <strong>{INR(sharedCash)}</strong></div>}
+        {mode==="bank" && chosenBiz && <div style={{ marginTop:6, fontSize:12, color:"#1E40AF", background:"#EFF6FF", borderRadius:8, padding:"7px 10px" }}>{chosenBiz.icon} {chosenBiz.name} bank: <strong>{INR(chosenBiz.bankBalance)}</strong></div>}
 
-        <button onClick={saveAll}>
-          Save All {INR(batchTotal)}
+        <span style={S.fLabel}>Category (optional)</span>
+        <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
+          {CATS[type].map(c => (
+            <button key={c} style={{ ...S.chip, ...(cat===c?{background:"#EFF6FF",borderColor:C.blue,color:C.blue}:{}) }} onClick={() => setCat(c === cat ? "" : c)}>{c}</button>
+          ))}
+        </div>
+
+        <span style={S.fLabel}>Note</span>
+        <input style={S.input} placeholder="Optional description..." value={desc} onChange={e => setDesc(e.target.value)} />
+
+        <span style={S.fLabel}>Transaction Date</span>
+        <input type="date" value={date} max={todayStr()} onChange={e => setDate(e.target.value)}
+          style={{ ...S.input, marginTop:8, fontFamily:"inherit", color:isBackdated?"#92400E":C.slate900, background:isBackdated?"#FFFBEB":C.white, borderColor:isBackdated?"#FDE68A":C.slate200 }} />
+        {isBackdated && <div style={{ marginTop:6, fontSize:12, color:"#92400E", background:"#FFFBEB", borderRadius:8, padding:"6px 10px" }}>
+          📅 Back-dated entry for <strong>{new Date(date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</strong>
+        </div>}
+
+        {error && <div style={{ background:"#FEF2F2", color:C.red, borderRadius:10, padding:"10px 14px", fontSize:13, marginTop:12 }}>{error}</div>}
+
+        <button onClick={save} disabled={saving}
+          style={{ ...S.btn, background:type==="in"?C.green:C.red, color:C.white, opacity:saving?0.7:1, cursor:saving?"not-allowed":"pointer" }}>
+          {saving ? "Saving..." : "✓ Save Entry"}
         </button>
       </div>
     </div>
