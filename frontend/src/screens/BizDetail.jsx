@@ -29,7 +29,7 @@ export default function BizDetail({ biz, goBack, openTransfer }) {
   const txs=data?.transactions||[];
   const sumIn=txs.filter(t=>t.type==="in").reduce((s,t)=>s+t.amount,0);
   const sumOut=txs.filter(t=>t.type==="out").reduce((s,t)=>s+t.amount,0);
-  const [confirmDelete, setConfirmDelete] = useState(null); // id of tx pending confirmation
+  //const [confirmDelete, setConfirmDelete] = useState(null); // id of tx pending confirmation
   const deleteTx = async(id)=>{
     setDeleting(id);
     try{ await api.delete(`/transactions/${id}`); qc.invalidateQueries(["bizTxs"]); qc.invalidateQueries(["dashboard"]); }
