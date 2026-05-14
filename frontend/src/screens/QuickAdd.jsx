@@ -22,8 +22,7 @@ export default function QuickAdd({ openVoice }) {
   const rowIdRef = useRef(1);
   const nextId = () => rowIdRef.current++;
 
-  const [date,      setDate]      = useState(todayStr());
-  const [rows,      setRows]      = useState([{ id: nextId(), tplId:"t1", amount:"", note:"" }]);
+  const [rows,      setRows]      = useState([{ id: nextId(), tplId:"t1", amount:"", note:"", date:todayStr() }]);
   const [saving,    setSaving]    = useState(false);
   const [saveResults, setSaveResults] = useState(null); // null | { saved, failed }
   const [rowErr,    setRowErr]    = useState({});
@@ -36,13 +35,12 @@ export default function QuickAdd({ openVoice }) {
   const sharedCash = dashData?.sharedCash || 0;
   const todayIn    = dashData?.today?.in  || 0;
   const todayOut   = dashData?.today?.out || 0;
-  const isBackdated = date !== todayStr();
   const batchTotal  = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
 
   const getBiz = (bizType) => businesses.find(b => b.type === bizType);
   const getTpl = (id)      => TEMPLATES.find(t => t.id === id);
 
-  const addRow    = ()       => setRows(p => [...p, { id: nextId(), tplId:"t1", amount:"", note:"" }]);
+  const addRow    = ()       => setRows(p => [...p, { id: nextId(), tplId:"t1", amount:"", note:"", date:todayStr() }]);
   const removeRow = (id)     => { if (rows.length === 1) return; setRows(p => p.filter(r => r.id !== id)); };
   const updRow    = (id,f,v) => {
     setRows(p => p.map(r => r.id === id ? { ...r, [f]: v } : r));
@@ -70,7 +68,7 @@ export default function QuickAdd({ openVoice }) {
           mode:        tpl.mode,
           category:    tpl.category,
           description: r.note.trim() || `${tpl.label} · ${tpl.sublabel}`,
-          txDate:      date,
+          txDate:      r.date,
         });
       })
     );
@@ -89,7 +87,7 @@ export default function QuickAdd({ openVoice }) {
 
     if (failed === 0) {
       // All succeeded — reset
-      setRows([{ id: nextId(), tplId:"t1", amount:"", note:"" }]);
+      setRows([{ id: nextId(), tplId:"t1", amount:"", note:"", date:todayStr() }]);
       setRowErr({});
       setTimeout(() => setSaveResults(null), 3000);
     } else {
@@ -114,7 +112,7 @@ export default function QuickAdd({ openVoice }) {
       <div style={{ ...S.header, justifyContent:"space-between", alignItems:"center" }}>
         <div>
           <div style={S.title}>⚡ Bulk Entry</div>
-          <div style={S.sub}>Add multiple transactions · save at once</div>
+          <div style={S.sub}>Each entry can have its own date</div>
         </div>
         {openVoice && (
           <button onClick={openVoice} style={{ background:"rgba(255,255,255,0.15)", border:"1.5px solid rgba(255,255,255,0.3)", borderRadius:12, padding:"8px 14px", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:6 }}>
@@ -133,14 +131,6 @@ export default function QuickAdd({ openVoice }) {
       </div>
 
       <div style={{ padding:"0 16px" }}>
-        {/* Date picker */}
-        <div style={{ marginTop:16 }}>
-          <div style={{ ...S.label, marginBottom:8 }}>📅 Date for all entries</div>
-          <input type="date" value={date} max={todayStr()} onChange={e => setDate(e.target.value)}
-            style={{ ...S.input, marginTop:0, fontFamily:"inherit", color:isBackdated?"#92400E":"#0F172A", background:isBackdated?"#FFFBEB":"#fff", borderColor:isBackdated?"#FDE68A":"#E2E8F0", fontSize:15 }} />
-          {isBackdated && <div style={{ marginTop:6, fontSize:12, color:"#92400E", background:"#FFFBEB", borderRadius:8, padding:"6px 10px" }}>📅 Back-dated — all entries logged for <strong>{new Date(date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</strong></div>}
-        </div>
-
         {/* Save result feedback */}
         {saveResults && saveResults.failed === 0 && (
           <div style={{ marginTop:12, background:"#ECFDF5", border:"1.5px solid #6EE7B7", borderRadius:12, padding:"12px 16px", textAlign:"center", fontSize:15, fontWeight:700, color:"#065F46" }}>
@@ -184,7 +174,7 @@ export default function QuickAdd({ openVoice }) {
                     </button>
                   ))}
                 </div>
-                <div style={{ padding:"0 14px 14px", display:"flex", gap:10, alignItems:"flex-start" }}>
+                <div style={{ padding:"0 14px 12px", display:"flex", gap:10, alignItems:"flex-start" }}>
                   <div style={{ flex:"0 0 120px" }}>
                     <div style={{ fontSize:10, color:C.slate400, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, marginBottom:4 }}>Amount (₹)</div>
                     <input type="number" inputMode="numeric" placeholder="0" value={row.amount}
@@ -198,6 +188,28 @@ export default function QuickAdd({ openVoice }) {
                       onChange={e => updRow(row.id,"note",e.target.value)}
                       style={{ ...S.input, marginTop:0, padding:"10px 12px", fontSize:13, borderRadius:10 }} />
                   </div>
+                </div>
+                {/* Per-row date picker */}
+                <div style={{ padding:"0 14px 14px" }}>
+                  <div style={{ fontSize:10, color:C.slate400, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, marginBottom:4 }}>📅 Date</div>
+                  <input
+                    type="date"
+                    value={row.date}
+                    max={todayStr()}
+                    onChange={e => updRow(row.id,"date",e.target.value)}
+                    style={{
+                      width:"100%", borderRadius:10, padding:"9px 12px", fontSize:13,
+                      outline:"none", fontFamily:"inherit", boxSizing:"border-box",
+                      border:`1.5px solid ${row.date!==todayStr()?"#FDE68A":C.slate200}`,
+                      background: row.date!==todayStr()?"#FFFBEB":"#fff",
+                      color:      row.date!==todayStr()?"#92400E":C.slate900,
+                    }}
+                  />
+                  {row.date!==todayStr() && (
+                    <div style={{ marginTop:4, fontSize:11, color:"#92400E" }}>
+                      📅 Back-dated: <strong>{new Date(row.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</strong>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -215,8 +227,14 @@ export default function QuickAdd({ openVoice }) {
               <div style={{ fontSize:20, fontWeight:900, color:C.slate900 }}>{INR(batchTotal)}</div>
             </div>
             <div style={{ fontSize:12, color:C.slate500, textAlign:"right" }}>
-              <div style={{ fontWeight:600 }}>Date</div>
-              <div style={{ color:isBackdated?"#92400E":C.slate700, fontWeight:700 }}>{new Date(date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
+              <div style={{ fontWeight:600 }}>
+                {new Set(rows.map(r=>r.date)).size > 1 ? `${new Set(rows.map(r=>r.date)).size} dates` : "Date"}
+              </div>
+              <div style={{ color: rows.some(r=>r.date!==todayStr())?"#92400E":C.slate700, fontWeight:700 }}>
+                {new Set(rows.map(r=>r.date)).size > 1
+                  ? "Multiple"
+                  : new Date(rows[0].date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}
+              </div>
             </div>
           </div>
           {/* FIX: cursor:not-allowed when disabled */}

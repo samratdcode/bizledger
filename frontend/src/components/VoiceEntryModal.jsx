@@ -58,6 +58,7 @@ export default function VoiceEntryModal({ onClose }) {
   const [parsed,     setParsed]     = useState(null);
   const [saveErr,    setSaveErr]    = useState("");
   const [amount,     setAmount]     = useState("");
+  const [txDate,     setTxDate]     = useState(todayStr());
   const [supported,  setSupported]  = useState(true);
   const recogRef = useRef(null);
   // FIX: Track current phase in ref for use inside onend callback (avoids stale closure)
@@ -138,12 +139,13 @@ export default function VoiceEntryModal({ onClose }) {
         // FIX: Use correct category per business type
         category:    CATEGORY_MAP[parsed.bizType] || "Collection",
         description: `Voice: ${transcript}`,
-        txDate:      todayStr(),
+        txDate:      txDate,
       });
       qc.invalidateQueries(["dashboard"]);
       qc.invalidateQueries(["allTxs"]);
       qc.invalidateQueries(["bizTxs"]);
       qc.invalidateQueries(["reports"]);
+      setTxDate(todayStr());
       setPhaseSync("done");
       setTimeout(() => onClose(), 1800);
     } catch (e) {
@@ -218,6 +220,28 @@ export default function VoiceEntryModal({ onClose }) {
                 <div style={{ fontSize:11, fontWeight:700, color:"#065F46", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Amount — edit if wrong</div>
                 <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
                   style={{ ...S.input, fontSize:26, fontWeight:900, textAlign:"center", borderColor:"#6EE7B7", background:"#fff" }} />
+
+                {/* Date picker for backdated voice entries */}
+                <div style={{ marginTop:14 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:"#065F46", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>📅 Transaction Date</div>
+                  <input
+                    type="date"
+                    value={txDate}
+                    max={todayStr()}
+                    onChange={e => setTxDate(e.target.value)}
+                    style={{
+                      ...S.input, marginTop:0, fontFamily:"inherit",
+                      color:       txDate !== todayStr() ? "#92400E" : "#065F46",
+                      background:  txDate !== todayStr() ? "#FFFBEB" : "#fff",
+                      borderColor: txDate !== todayStr() ? "#FDE68A" : "#6EE7B7",
+                    }}
+                  />
+                  {txDate !== todayStr() && (
+                    <div style={{ marginTop:4, fontSize:12, color:"#92400E" }}>
+                      📅 Back-dated: <strong>{new Date(txDate+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</strong>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <div style={{ background:"#FEF2F2", border:"1.5px solid #FCA5A5", borderRadius:14, padding:"16px 18px", marginBottom:16 }}>
